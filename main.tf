@@ -122,6 +122,7 @@ echo "Setting GitLab concurrency"
 sed -i "s/concurrent = .*/concurrent = ${var.ci_concurrency}/" /etc/gitlab-runner/config.toml
 
 echo "Registering GitLab CI runner with GitLab instance."
+mkdir /tmp/gitlab-cache
 sudo gitlab-runner register -n  \
     --url ${var.gitlab_url} \
     --token ${var.ci_token} \
@@ -130,6 +131,9 @@ sudo gitlab-runner register -n  \
     --tag-list "${var.ci_runner_gitlab_tags}" \
     --machine-machine-driver google \
     --docker-privileged=${var.docker_privileged} \
+    --cache-dir="/tmp/gitlab-cache" \
+    --docker-volumes="/tmp/gitlab-cache:/cache" \
+    --docker-volumes="/certs/client" \
     --machine-idle-time ${var.ci_worker_idle_time} \
     --machine-machine-name "${var.gcp_resource_prefix}-worker-%s" \
     --machine-machine-options "google-project=${var.gcp_project}" \
