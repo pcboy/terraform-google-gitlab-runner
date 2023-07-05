@@ -26,6 +26,24 @@ resource "google_service_account" "ci_runner" {
   account_id   = "${var.gcp_resource_prefix}-runner"
   display_name = "GitLab CI Runner"
 }
+
+resource "google_storage_bucket" "ci_runner_cache_bucket" {
+  name     = "${var.gcp_resource_prefix}-runner-cache-bucket"
+  location = join("-", slice(split("-", var.gcp_zone), 0, 2))
+
+  uniform_bucket_level_access = true
+}
+resource "google_project_iam_member" "storageadmin_ci_worker" {
+  project = var.gcp_project
+  role    = "roles/storage.objectAdmin"
+  member  = "serviceAccount:${google_service_account.ci_worker.email}"
+}
+
+resource "google_project_iam_member" "sakeysadmin_ci_runner" {
+  project = var.gcp_project
+  role    = "roles/iam.serviceAccountKeyAdmin"
+  member  = "serviceAccount:${google_service_account.ci_runner.email}"
+}
 resource "google_project_iam_member" "instanceadmin_ci_runner" {
   project = var.gcp_project
   role    = "roles/compute.instanceAdmin.v1"
@@ -122,6 +140,9 @@ echo "Setting GitLab concurrency"
 sed -i "s/concurrent = .*/concurrent = ${var.ci_concurrency}/" /etc/gitlab-runner/config.toml
 
 echo "Registering GitLab CI runner with GitLab instance."
+
+gcloud iam service-accounts keys create /etc/gitlab-runner/credentials.json --iam-account=${google_service_account.ci_worker.email}
+
 sudo gitlab-runner register -n  \
     --url ${var.gitlab_url} \
     --token ${var.ci_token} \
@@ -130,6 +151,12 @@ sudo gitlab-runner register -n  \
     --tag-list "${var.ci_runner_gitlab_tags}" \
     --machine-machine-driver google \
     --docker-privileged=${var.docker_privileged} \
+    --cache-type="gcs" \
+    --cache-path="${var.gcp_resource_prefix}" \
+    --cache-shared \
+    --cache-gcs-bucket-name=${google_storage_bucket.ci_runner_cache_bucket.name} \
+    --cache-gcs-credentials-file=/etc/gitlab-runner/credentials.json \
+    --docker-volumes="/certs/client" \
     --machine-idle-time ${var.ci_worker_idle_time} \
     --machine-machine-name "${var.gcp_resource_prefix}-worker-%s" \
     --machine-machine-options "google-project=${var.gcp_project}" \
